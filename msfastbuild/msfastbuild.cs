@@ -497,7 +497,10 @@ namespace msfastbuild
 				var MatchingNodes = ObjectLists.Where(el => el.AddIfMatches(Item.EvaluatedInclude, "msvc", IntDir, FormattedCompilerOptions));
 				if(!MatchingNodes.Any())
 				{
-					ObjectLists.Add(new ObjectListNode(Item.EvaluatedInclude, "msvc", IntDir, FormattedCompilerOptions, PrecompiledHeaderString));
+					string ItemPrecompiledHeaderString = PrecompiledHeaderString;
+					if (Item.DirectMetadata.Where(dmd => dmd.Name == "PrecompiledHeader" && dmd.EvaluatedValue == "NotUsing").Any())
+						ItemPrecompiledHeaderString = "";
+					ObjectLists.Add(new ObjectListNode(Item.EvaluatedInclude, "msvc", IntDir, FormattedCompilerOptions, ItemPrecompiledHeaderString));
 				}
 			}
 
