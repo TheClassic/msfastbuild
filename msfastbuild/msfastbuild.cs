@@ -284,6 +284,7 @@ namespace msfastbuild
 
 		public class ObjectListNode
 		{
+			public string Name;
 			string Compiler;
 			string CompilerOutputPath;
 			string CompilerOptions;
@@ -313,9 +314,10 @@ namespace msfastbuild
 				return false;
 			}
 		
-			public string ToString(int ActionNumber)
+			public string ToString(string bffName, int ActionNumber)
 			{
-				StringBuilder ObjectListString = new StringBuilder(string.Format("ObjectList('Action_{0}')\n{{\n", ActionNumber));
+				Name = string.Format("{0}_Action_{1}", bffName, ActionNumber);
+				StringBuilder ObjectListString = new StringBuilder(string.Format("ObjectList('{0}')\n{{\n", Name));
 				ObjectListString.AppendFormat("\t.Compiler = '{0}'\n",Compiler);
 				ObjectListString.AppendFormat("\t.CompilerOutputPath = \"{0}\"\n", CompilerOutputPath);
 				ObjectListString.AppendFormat("\t.CompilerInputFiles = {{ {0} }}\n", string.Join(",", CompilerInputFiles.ConvertAll(el => string.Format("'{0}'", el)).ToArray()));
@@ -344,6 +346,8 @@ namespace msfastbuild
 			PreBuildBatchFile = "";
 			PostBuildBatchFile = "";
 			bool FileChanged = HasFileChanged(ActiveProject.FullPath, Platform, Config, out MD5hash);
+
+			string bffName = Path.GetFileNameWithoutExtension(ActiveProject.FullPath) + '_' + Platform + '_' + Config; /// we'll use this as the filename as well as objects within the bff
 
 			string configType = ActiveProject.GetProperty("ConfigurationType").EvaluatedValue;
 			switch(configType)
@@ -529,8 +533,8 @@ namespace msfastbuild
 			int ActionNumber = 0;
 			foreach (ObjectListNode ObjList in ObjectLists)
 			{
-				OutputString.Append(ObjList.ToString(ActionNumber));
-				ActionNumber++;        
+				OutputString.Append(ObjList.ToString(bffName, ActionNumber));
+				ActionNumber++;
 			}
 
 			if (ActionNumber > 0)
@@ -543,11 +547,12 @@ namespace msfastbuild
 				Console.WriteLine("Project has no actions to compile.");
 			}
 
-			string CompileActions = string.Join(",", Enumerable.Range(0, ActionNumber).ToList().ConvertAll(x => string.Format("'Action_{0}'", x)).ToArray());
+			string[] Libraries = ObjectLists.Select(x => string.Format("'{0}'", x.Name)).ToArray();
+			string CompileActions = string.Join(",", Libraries);
 
 			if (BuildOutput == BuildType.Application || BuildOutput == BuildType.DynamicLib)
 			{
-				OutputString.AppendFormat("{0}('output')\n{{", BuildOutput == BuildType.Application ? "Executable" : "DLL");
+				OutputString.AppendFormat("{0}('{1}')\n{{", BuildOutput == BuildType.Application ? "Executable" : "DLL", bffName);
 
 				if (Platform == "Win32" || Platform == "x86")
 				{
@@ -593,8 +598,8 @@ namespace msfastbuild
 			}
 			else if(BuildOutput == BuildType.StaticLib)
 			{
-				OutputString.Append("Library('output')\n{");
-				OutputString.Append("\t.Compiler = 'msvc'\n");
+				OutputString.Append(string.Format("Library('{0}')", bffName));
+				OutputString.Append("\n{\n\t.Compiler = 'msvc'\n");
 				OutputString.Append(string.Format("\t.CompilerOptions = '\"%1\" /Fo\"%2\" /c {0}'\n", CompilerOptions));
 				OutputString.Append(string.Format("\t.CompilerOutputPath = \"{0}\"\n", IntDir));
 
@@ -657,14 +662,14 @@ namespace msfastbuild
 						OutputString.AppendFormat("\t.ExecExecutable = '{0}' \n", PostBuildBatchFile);
 						OutputString.AppendFormat("\t.ExecInput = '{0}' \n", PostBuildBatchFile);
 						OutputString.AppendFormat("\t.ExecOutput = '{0}' \n", PostBuildBatchFile + ".txt");
-						OutputString.Append("\t.PreBuildDependencies = 'output' \n");
+						OutputString.AppendFormat("\t.PreBuildDependencies = '{0}' \n", bffName);
 						OutputString.Append("\t.ExecUseStdOutAsOutput = true \n");
 						OutputString.Append("}\n\n");
 					}
 				}
 			}
 
-			OutputString.AppendFormat("Alias ('all')\n{{\n\t.Targets = {{ '{0}' }}\n}} ", string.IsNullOrEmpty(PostBuildBatchFile) ? "output" : "postbuild");
+			OutputString.AppendFormat("Alias ('all')\n{{\n\t.Targets = {{ '{0}' }}\n}} ", string.IsNullOrEmpty(PostBuildBatchFile) ? bffName : "postbuild");
 
 			if(FileChanged || CommandLineOptions.AlwaysRegenerate)
 			{
