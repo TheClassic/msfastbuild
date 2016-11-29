@@ -363,7 +363,7 @@ namespace msfastbuild
 			string OutDir = ActiveProject.GetProperty("OutDir").EvaluatedValue;
 			string IntDir = ActiveProject.GetProperty("IntDir").EvaluatedValue;
 
-			StringBuilder OutputString = new StringBuilder(MD5hash + "\n\n");
+			StringBuilder OutputString = new StringBuilder(MD5hash + "\n\n#once\n\n");
 
 			OutputString.AppendFormat(".VSBasePath = '{0}'\n", ActiveProject.GetProperty("VSInstallDir").EvaluatedValue);
 			VCBasePath = ActiveProject.GetProperty("VCInstallDir").EvaluatedValue;
