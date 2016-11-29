@@ -88,6 +88,11 @@ namespace msfastbuild
 			public string AdditionalLinkInputs = "";
 		}
 
+		static public string GenerateBFF_FilePath(string projectPath, Options CommandLineOptions)
+		{
+			return projectPath + "_" + CommandLineOptions.Config.Replace(" ", "") + "_" + CommandLineOptions.Platform.Replace(" ", "") + ".bff";
+		}
+
 		static void Main(string[] args)
 		{			
 			Parser parser = new Parser();
@@ -153,8 +158,9 @@ namespace msfastbuild
 			{
 				CurrentProject = project;
 				CPPTasksAssembly = Assembly.LoadFrom(CurrentProject.Proj.GetPropertyValue("VCTargetsPath14") + "Microsoft.Build.CPPTasks.Common.dll"); //Dodgy? VCTargetsPath may not be there...
-				BFFOutputFilePath = Path.GetDirectoryName(CurrentProject.Proj.FullPath) + "\\" + Path.GetFileName(CurrentProject.Proj.FullPath) + "_" + CommandLineOptions.Config.Replace(" ", "") + "_" + CommandLineOptions.Platform.Replace(" ", "") + ".bff";
+				BFFOutputFilePath = GenerateBFF_FilePath(project.Proj.FullPath, CommandLineOptions);
 				GenerateBffFromVcxproj(CommandLineOptions.Config, CommandLineOptions.Platform);
+
 
 				if (!CommandLineOptions.GenerateOnly)
 				{
