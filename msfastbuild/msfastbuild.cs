@@ -65,7 +65,6 @@ namespace msfastbuild
 		static public string BFFOutputFilePath = "fbuild.bff";
 		static public Options CommandLineOptions = new Options();
 		static public string WindowsSDKTarget = "10.0.10240.0";
-		static public MSFBProject CurrentProject;
 		static public Assembly CPPTasksAssembly;
 		static public string PreBuildBatchFile = "";
 		static public string PostBuildBatchFile = "";
@@ -83,8 +82,34 @@ namespace msfastbuild
 
 		public class MSFBProject
 		{
+			public MSFBProject(string vcprojxPath)
+			{
+				// TODO is it ok to to throw an exception from a constructor?
+				try
+				{
+					ProjectCollection projColl = new ProjectCollection();
+					if (!string.IsNullOrEmpty(SolutionDir))
+						projColl.SetGlobalProperty("SolutionDir", SolutionDir);
+
+					Proj = projColl.LoadProject(vcprojxPath);
+
+					if (Proj != null)
+					{
+						Proj.SetGlobalProperty("Configuration", CommandLineOptions.Config);
+						Proj.SetGlobalProperty("Platform", CommandLineOptions.Platform);
+						if (!string.IsNullOrEmpty(SolutionDir))
+							Proj.SetGlobalProperty("SolutionDir", SolutionDir);
+						Proj.ReevaluateIfNecessary();
+					}
+				}
+				catch (Exception e)
+				{
+					Console.WriteLine("Exception loading project " + vcprojxPath + " exception " + e.Message);
+				}
+			}
+
 			public Project Proj;
-			public List<MSFBProject> Dependents = new List<MSFBProject>();
+			public List<MSFBProject> Dependencies = new List<MSFBProject>();
 			public string AdditionalLinkInputs = "";
 		}
 
@@ -146,88 +171,29 @@ namespace msfastbuild
 				ProjectsToBuild.Add(Path.GetFullPath(CommandLineOptions.Project));
 			}
 
-			List<MSFBProject> EvaluatedProjects = new List<MSFBProject>();
+			StringBuilder masterBffContent = new StringBuilder(); //essentially a bff for the solution, including each of the projects
+
+			Dictionary<string, MSFBProject> GeneratedProjects = new Dictionary<string, MSFBProject>();
 
 			for (int i=0; i < ProjectsToBuild.Count; ++i)
 			{
-				EvaluateProjectReferences(ProjectsToBuild[i], EvaluatedProjects, null);
+				if (!GeneratedProjects.ContainsKey(Path.GetFullPath(ProjectsToBuild[i])))
+					GenerateBffFromVcxproj(new MSFBProject(ProjectsToBuild[i]), CommandLineOptions.Config, CommandLineOptions.Platform, GeneratedProjects);
 			}
-
-			int ProjectsBuilt = 0;
-			foreach(MSFBProject project in EvaluatedProjects)
-			{
-				CurrentProject = project;
-				CPPTasksAssembly = Assembly.LoadFrom(CurrentProject.Proj.GetPropertyValue("VCTargetsPath14") + "Microsoft.Build.CPPTasks.Common.dll"); //Dodgy? VCTargetsPath may not be there...
-				BFFOutputFilePath = GenerateBFF_FilePath(project.Proj.FullPath, CommandLineOptions);
-				GenerateBffFromVcxproj(CommandLineOptions.Config, CommandLineOptions.Platform);
-
-
-				if (!CommandLineOptions.GenerateOnly)
-				{
-					if (HasCompileActions && !ExecuteBffFile(CurrentProject.Proj.FullPath, CommandLineOptions.Platform))
-						break;
-					else
-						ProjectsBuilt++;
-				}
-			}
-
-			Console.WriteLine(ProjectsBuilt + "/" + EvaluatedProjects.Count + " built.");
 		}
 
-		static public void EvaluateProjectReferences(string ProjectPath, List<MSFBProject> evaluatedProjects, MSFBProject dependent)
+		static public List<string> EvaluateProjectReferences(Project project)
 		{
-			if (!string.IsNullOrEmpty(ProjectPath) && File.Exists(ProjectPath))
+			List<string> dependencies = new List<string>();
+			var ProjectReferences = project.Items.Where(elem => elem.ItemType == "ProjectReference");
+			foreach (var ProjRef in ProjectReferences)
 			{
-				try
+				if (ProjRef.GetMetadataValue("ReferenceOutputAssembly") == "true" || ProjRef.GetMetadataValue("LinkLibraryDependencies") == "true")
 				{
-					MSFBProject newProj = evaluatedProjects.Find(elem => elem.Proj.FullPath == Path.GetFullPath(ProjectPath));
-					if (newProj != null)
-					{
-						//Console.WriteLine("Found exisiting project " + Path.GetFileNameWithoutExtension(ProjectPath));
-						if (dependent != null)
-							newProj.Dependents.Add(dependent);
-					}
-					else
-					{
-						ProjectCollection projColl = new ProjectCollection();
-						if (!string.IsNullOrEmpty(SolutionDir))
-							projColl.SetGlobalProperty("SolutionDir", SolutionDir);
-						newProj = new MSFBProject();
-						Project proj = projColl.LoadProject(ProjectPath);
-
-						if (proj != null)
-						{
-							proj.SetGlobalProperty("Configuration", CommandLineOptions.Config);
-							proj.SetGlobalProperty("Platform", CommandLineOptions.Platform);
-							if (!string.IsNullOrEmpty(SolutionDir))
-								proj.SetGlobalProperty("SolutionDir", SolutionDir);
-							proj.ReevaluateIfNecessary();
-
-							newProj.Proj = proj;
-							if (dependent != null)
-							{
-								newProj.Dependents.Add(dependent);
-							}
-							var ProjectReferences = proj.Items.Where(elem => elem.ItemType == "ProjectReference");
-							foreach (var ProjRef in ProjectReferences)
-							{
-								if (ProjRef.GetMetadataValue("ReferenceOutputAssembly") == "true" || ProjRef.GetMetadataValue("LinkLibraryDependencies") == "true")
-								{
-									//Console.WriteLine(string.Format("{0} referenced by {1}.", Path.GetFileNameWithoutExtension(ProjRef.EvaluatedInclude), Path.GetFileNameWithoutExtension(proj.FullPath)));
-									EvaluateProjectReferences(Path.GetDirectoryName(proj.FullPath) + Path.DirectorySeparatorChar + ProjRef.EvaluatedInclude, evaluatedProjects, newProj);
-								}
-							}
-							//Console.WriteLine("Adding " + Path.GetFileNameWithoutExtension(proj.FullPath));
-							evaluatedProjects.Add(newProj);
-						}
-					}
-				}
-				catch (Exception e)
-				{
-					Console.WriteLine("Exception loading project " + ProjectPath + " exception " + e.Message);
-					return;
+					dependencies.Add(Path.GetDirectoryName(project.FullPath) + Path.DirectorySeparatorChar + ProjRef.EvaluatedInclude);
 				}
 			}
+			return dependencies;
 		}
 
 		static public bool HasFileChanged(string InputFile, string Platform, string Config, out string MD5hash)
@@ -236,7 +202,7 @@ namespace msfastbuild
 			{
 				using (var stream = File.OpenRead(InputFile))
 				{
-				    MD5hash = ";" + InputFile + "_" + Platform + "_" + Config + "_" + BitConverter.ToString(md5.ComputeHash(stream)).Replace("-", "").ToLower();
+					MD5hash = ";" + InputFile + "_" + Platform + "_" + Config + "_" + BitConverter.ToString(md5.ComputeHash(stream)).Replace("-", "").ToLower();
 				}
 			}
 			
@@ -286,6 +252,14 @@ namespace msfastbuild
 				Console.WriteLine("Problem launching fb.bat. Exception: " + e.Message);
 				return false;
 			}
+		}
+
+		public class BffProjectFile
+		{
+			string path;  /// path and filename
+			HashSet<string> compilers; /// string comprising compilers needed for this project
+			string settings; /// string containing settings needed for this project
+			List<string> objects; /// list of objects created by this project
 		}
 
 		public class ObjectListNode
@@ -345,13 +319,48 @@ namespace msfastbuild
 			}
 		}
 
-		static private void GenerateBffFromVcxproj(string Config, string Platform)
+		/// <summary>
+		/// Generates a bff file for a project, and recursively for all dependencies
+		/// </summary>
+		/// <param name="ProjectPath"></param>
+		/// <param name="Config"></param>
+		/// <param name="Platform"></param>
+		static private void GenerateBffFromVcxproj(MSFBProject CurrentProject, string Config, string Platform, Dictionary<string, MSFBProject> generatedProjects)
 		{
+			string ProjectPath = CurrentProject.Proj.FullPath;
+			if (Path.GetExtension(ProjectPath) != ".vcxproj")
+			{
+				Console.WriteLine("Cannot handle project {0}.", ProjectPath);
+				return;
+			}
+				
+
+			BFFOutputFilePath = GenerateBFF_FilePath(ProjectPath, CommandLineOptions);
+
+			List<string> dependencies = EvaluateProjectReferences(CurrentProject.Proj);
+
+			foreach (string dependencyPath in dependencies)
+			{
+				MSFBProject dependency = null;
+				
+				if (!generatedProjects.TryGetValue(Path.GetFullPath(dependencyPath), out dependency))
+				{
+					dependency = new MSFBProject(dependencyPath);
+					GenerateBffFromVcxproj(dependency, Config, Platform, generatedProjects);
+					generatedProjects[Path.GetFullPath(dependencyPath)] = dependency;
+				}
+				CurrentProject.Dependencies.Add(dependency);
+			}
+
+			generatedProjects[ProjectPath] = CurrentProject;
+
 			Project ActiveProject = CurrentProject.Proj;
+
+			CPPTasksAssembly = Assembly.LoadFrom(CurrentProject.Proj.GetPropertyValue("VCTargetsPath14") + "Microsoft.Build.CPPTasks.Common.dll"); //Dodgy? VCTargetsPath may not be there...
+
 			string MD5hash = "wafflepalooza";
-			PreBuildBatchFile = "";
-			PostBuildBatchFile = "";
-			bool FileChanged = HasFileChanged(ActiveProject.FullPath, Platform, Config, out MD5hash);
+			bool FileChanged = HasFileChanged(ProjectPath, Platform, Config, out MD5hash);
+
 
 			string bffName = Path.GetFileNameWithoutExtension(ActiveProject.FullPath) + '_' + Platform + '_' + Config; /// we'll use this as the filename as well as objects within the bff
 
@@ -550,7 +559,7 @@ namespace msfastbuild
 			else
 			{
 				HasCompileActions = false;
-				Console.WriteLine("Project has no actions to compile.");
+				Console.WriteLine("Project {0} has no actions to compile.", ProjectPath);
 			}
 
 			string[] Libraries = ObjectLists.Select(x => string.Format("'{0}'", x.Name)).ToArray();
@@ -580,7 +589,7 @@ namespace msfastbuild
 					else
 						DependencyOutputPath = Path.Combine(ActiveProject.DirectoryPath, DependencyOutputPath).Replace('\\', '/');
 
-					foreach (var deps in CurrentProject.Dependents)
+					foreach (var deps in CurrentProject.Dependencies)
 					{
 						deps.AdditionalLinkInputs += " \"" + DependencyOutputPath + "\" ";
 					}
@@ -629,7 +638,7 @@ namespace msfastbuild
 					else
 						DependencyOutputPath = Path.Combine(ActiveProject.DirectoryPath, OutputFile).Replace('\\', '/');
 
-					foreach (var deps in CurrentProject.Dependents)
+					foreach (var deps in CurrentProject.Dependencies)
 					{
 						deps.AdditionalLinkInputs += " \"" + DependencyOutputPath + "\" ";
 					}
