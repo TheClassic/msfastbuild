@@ -69,6 +69,10 @@ namespace msfastbuild
 		static public string PostBuildBatchFile = "";
 		static public string SolutionDir = "";
 		static public bool HasCompileActions = true;
+		static public string msvc32 = "msvc32";
+		static public string msvc64 = "msvc64";
+		static public string rc = "rc";
+		static public string settingsFilePath = "";
 
 		public enum BuildType
 		{
@@ -116,6 +120,97 @@ namespace msfastbuild
 			return projectPath + "_" + CommandLineOptions.Config.Replace(" ", "") + "_" + CommandLineOptions.Platform.Replace(" ", "") + ".bff";
 		}
 
+		static public void InitializeSettingsFilePath(string solutionPath)
+		{
+			settingsFilePath = Path.GetDirectoryName(solutionPath);
+			settingsFilePath = Path.Combine(settingsFilePath, "settings.bff");
+		}
+
+		static public string GenerateMSVCCompilerString(string Platform)
+		{
+			StringBuilder CompilerString = new StringBuilder();
+
+			string CompilerRoot = CompilerRoot = VCBasePath + "bin/";
+			if (Platform == "Win64" || Platform == "x64")
+			{
+				CompilerString.Append("Compiler('msvc64')\n{\n");
+				CompilerString.Append("\t.Root = '$VSBasePath$/VC/bin/amd64'\n");
+				CompilerRoot += "amd64/";
+			}
+			else if (Platform == "Win32" || Platform == "x86" || true) //Hmm.
+			{
+				CompilerString.Append("Compiler('msvc32')\n{\n");
+				CompilerString.Append("\t.Root = '$VSBasePath$/VC/bin'\n");
+			}
+			CompilerString.Append("\t.Executable = '$Root$/cl.exe'\n");
+			CompilerString.Append("\t.ExtraFiles =\n\t{\n");
+			CompilerString.Append("\t\t'$Root$/c1.dll'\n");
+			CompilerString.Append("\t\t'$Root$/c1xx.dll'\n");
+			CompilerString.Append("\t\t'$Root$/c2.dll'\n");
+
+			if (File.Exists(CompilerRoot + "1033/clui.dll")) //Check English first...
+			{
+				CompilerString.Append("\t\t'$Root$/1033/clui.dll'\n");
+			}
+			else
+			{
+				var numericDirectories = Directory.GetDirectories(CompilerRoot).Where(d => Path.GetFileName(d).All(char.IsDigit));
+				var cluiDirectories = numericDirectories.Where(d => Directory.GetFiles(d, "clui.dll").Any());
+				if (cluiDirectories.Any())
+				{
+					CompilerString.AppendFormat("\t\t'$Root$/{0}/clui.dll'\n", Path.GetFileName(cluiDirectories.First()));
+				}
+			}
+
+			CompilerString.Append("\t\t'$Root$/mspdbsrv.exe'\n");
+			CompilerString.Append("\t\t'$Root$/mspdbcore.dll'\n");
+
+			CompilerString.AppendFormat("\t\t'$Root$/mspft{0}.dll'\n", PlatformToolsetVersion);
+			CompilerString.AppendFormat("\t\t'$Root$/msobj{0}.dll'\n", PlatformToolsetVersion);
+			CompilerString.AppendFormat("\t\t'$Root$/mspdb{0}.dll'\n", PlatformToolsetVersion);
+			CompilerString.AppendFormat("\t\t'$VSBasePath$/VC/redist/{0}/Microsoft.VC{1}.CRT/msvcp{1}.dll'\n", Platform == "Win32" ? "x86" : "x64", PlatformToolsetVersion);
+			CompilerString.AppendFormat("\t\t'$VSBasePath$/VC/redist/{0}/Microsoft.VC{1}.CRT/vccorlib{1}.dll'\n", Platform == "Win32" ? "x86" : "x64", PlatformToolsetVersion);
+
+			CompilerString.Append("\t}\n"); //End extra files
+			CompilerString.Append("}\n\n"); //End compiler
+
+			return CompilerString.ToString();
+		}
+
+		static public void CreateSettingsFile(Project project)
+		{
+			StringBuilder settingsContent = new StringBuilder();
+			settingsContent.Append("#once\n\n");
+
+			settingsContent.AppendFormat(".VSBasePath = '{0}'\n", project.GetProperty("VSInstallDir").EvaluatedValue);
+			VCBasePath = project.GetProperty("VCInstallDir").EvaluatedValue;
+			settingsContent.AppendFormat(".VCBasePath = '{0}'\n", VCBasePath);
+
+			WindowsSDKTarget = project.GetProperty("WindowsTargetPlatformVersion") != null ? project.GetProperty("WindowsTargetPlatformVersion").EvaluatedValue : "8.1";
+
+			settingsContent.AppendFormat(".WindowsSDKBasePath = '{0}'\n\n", project.GetProperty("WindowsSdkDir").EvaluatedValue);
+
+			settingsContent.Append("Settings\n{\n\t.Environment = \n\t{\n");
+			settingsContent.AppendFormat("\t\t\"INCLUDE={0}\",\n", project.GetProperty("IncludePath").EvaluatedValue);
+			settingsContent.AppendFormat("\t\t\"LIB={0}\",\n", project.GetProperty("LibraryPath").EvaluatedValue);
+			settingsContent.AppendFormat("\t\t\"LIBPATH={0}\",\n", project.GetProperty("ReferencePath").EvaluatedValue);
+			settingsContent.AppendFormat("\t\t\"PATH={0}\"\n", project.GetProperty("Path").EvaluatedValue);
+			settingsContent.AppendFormat("\t\t\"TMP={0}\"\n", project.GetProperty("Temp").EvaluatedValue);
+			settingsContent.AppendFormat("\t\t\"TEMP={0}\"\n", project.GetProperty("Temp").EvaluatedValue);
+			settingsContent.AppendFormat("\t\t\"SystemRoot={0}\"\n", project.GetProperty("SystemRoot").EvaluatedValue);
+			settingsContent.Append("\t}\n}\n\n");
+
+			StringBuilder CompilerString = new StringBuilder();
+			CompilerString.Append(GenerateMSVCCompilerString("Win32"));
+			CompilerString.Append(GenerateMSVCCompilerString("Win64"));
+			CompilerString.Append("Compiler('rc') { .Executable = '$WindowsSDKBasePath$\\bin\\x64\\rc.exe' }\n\n");
+
+			settingsContent.Append(CompilerString);
+
+			File.WriteAllText(settingsFilePath, settingsContent.ToString());
+
+		}
+
 		static void Main(string[] args)
 		{			
 			Parser parser = new Parser();
@@ -135,6 +230,7 @@ namespace msfastbuild
 			List <string> ProjectsToBuild = new List<string>();
 			if (!string.IsNullOrEmpty(CommandLineOptions.Solution) && File.Exists(CommandLineOptions.Solution))
 			{
+				InitializeSettingsFilePath(CommandLineOptions.Solution);
 				try
 				{
 					if (string.IsNullOrEmpty(CommandLineOptions.Project))
@@ -173,10 +269,19 @@ namespace msfastbuild
 
 			Dictionary<string, MSFBProject> GeneratedProjects = new Dictionary<string, MSFBProject>();
 
+			bool settingsCreated = false;
 			for (int i=0; i < ProjectsToBuild.Count; ++i)
 			{
 				if (!GeneratedProjects.ContainsKey(Path.GetFullPath(ProjectsToBuild[i])))
-					GenerateBffFromVcxproj(new MSFBProject(ProjectsToBuild[i]), CommandLineOptions.Config, CommandLineOptions.Platform, GeneratedProjects);
+				{
+					MSFBProject msfbProject = new MSFBProject(ProjectsToBuild[i]);
+					if (!settingsCreated)
+					{
+						CreateSettingsFile(msfbProject.Proj);
+						settingsCreated = true;
+					}
+					GenerateBffFromVcxproj(msfbProject, CommandLineOptions.Config, CommandLineOptions.Platform, GeneratedProjects);
+				}
 			}
 		}
 
@@ -378,71 +483,7 @@ namespace msfastbuild
 
 			StringBuilder OutputString = new StringBuilder(MD5hash + "\n\n#once\n\n");
 
-			OutputString.AppendFormat(".VSBasePath = '{0}'\n", ActiveProject.GetProperty("VSInstallDir").EvaluatedValue);
-			VCBasePath = ActiveProject.GetProperty("VCInstallDir").EvaluatedValue;
-			OutputString.AppendFormat(".VCBasePath = '{0}'\n", VCBasePath);
-
-			WindowsSDKTarget = ActiveProject.GetProperty("WindowsTargetPlatformVersion") != null ? ActiveProject.GetProperty("WindowsTargetPlatformVersion").EvaluatedValue : "8.1";
-
-			OutputString.AppendFormat(".WindowsSDKBasePath = '{0}'\n\n", ActiveProject.GetProperty("WindowsSdkDir").EvaluatedValue);
-
-			OutputString.Append("Settings\n{\n\t.Environment = \n\t{\n");
-			OutputString.AppendFormat("\t\t\"INCLUDE={0}\",\n", ActiveProject.GetProperty("IncludePath").EvaluatedValue);
-			OutputString.AppendFormat("\t\t\"LIB={0}\",\n", ActiveProject.GetProperty("LibraryPath").EvaluatedValue);
-			OutputString.AppendFormat("\t\t\"LIBPATH={0}\",\n", ActiveProject.GetProperty("ReferencePath").EvaluatedValue);
-			OutputString.AppendFormat("\t\t\"PATH={0}\"\n", ActiveProject.GetProperty("Path").EvaluatedValue);
-			OutputString.AppendFormat("\t\t\"TMP={0}\"\n", ActiveProject.GetProperty("Temp").EvaluatedValue);
-			OutputString.AppendFormat("\t\t\"TEMP={0}\"\n", ActiveProject.GetProperty("Temp").EvaluatedValue);
-			OutputString.AppendFormat("\t\t\"SystemRoot={0}\"\n", ActiveProject.GetProperty("SystemRoot").EvaluatedValue);
-			OutputString.Append("\t}\n}\n\n");
-
-			StringBuilder CompilerString = new StringBuilder("Compiler('msvc')\n{\n");
-
-			string CompilerRoot = CompilerRoot = VCBasePath + "bin/";
-			if (Platform == "Win64" || Platform == "x64")
-			{
-				CompilerString.Append("\t.Root = '$VSBasePath$/VC/bin/amd64'\n");
-				CompilerRoot += "amd64/";
-			}
-			else if (Platform == "Win32" || Platform == "x86" || true) //Hmm.
-			{
-				CompilerString.Append("\t.Root = '$VSBasePath$/VC/bin'\n");
-			}
-			CompilerString.Append("\t.Executable = '$Root$/cl.exe'\n");
-			CompilerString.Append("\t.ExtraFiles =\n\t{\n");
-			CompilerString.Append("\t\t'$Root$/c1.dll'\n");
-			CompilerString.Append("\t\t'$Root$/c1xx.dll'\n");
-			CompilerString.Append("\t\t'$Root$/c2.dll'\n");
-
-			if(File.Exists(CompilerRoot + "1033/clui.dll")) //Check English first...
-			{
-				CompilerString.Append("\t\t'$Root$/1033/clui.dll'\n");
-			}
-			else
-			{
-				var numericDirectories = Directory.GetDirectories(CompilerRoot).Where(d => Path.GetFileName(d).All(char.IsDigit));
-				var cluiDirectories = numericDirectories.Where(d => Directory.GetFiles(d, "clui.dll").Any());
-				if(cluiDirectories.Any())
-				{
-					CompilerString.AppendFormat("\t\t'$Root$/{0}/clui.dll'\n", Path.GetFileName(cluiDirectories.First()));
-				}
-			}
-			
-			CompilerString.Append("\t\t'$Root$/mspdbsrv.exe'\n");
-			CompilerString.Append("\t\t'$Root$/mspdbcore.dll'\n");
-			
-			CompilerString.AppendFormat("\t\t'$Root$/mspft{0}.dll'\n", PlatformToolsetVersion);
-			CompilerString.AppendFormat("\t\t'$Root$/msobj{0}.dll'\n", PlatformToolsetVersion);
-			CompilerString.AppendFormat("\t\t'$Root$/mspdb{0}.dll'\n", PlatformToolsetVersion);
-			CompilerString.AppendFormat("\t\t'$VSBasePath$/VC/redist/{0}/Microsoft.VC{1}.CRT/msvcp{1}.dll'\n", Platform == "Win32" ? "x86" : "x64", PlatformToolsetVersion);
-			CompilerString.AppendFormat("\t\t'$VSBasePath$/VC/redist/{0}/Microsoft.VC{1}.CRT/vccorlib{1}.dll'\n", Platform == "Win32" ? "x86" : "x64", PlatformToolsetVersion);
-			
-			CompilerString.Append("\t}\n"); //End extra files
-			CompilerString.Append("}\n\n"); //End compiler
-			
-			CompilerString.Append("Compiler('rc') { .Executable = '$WindowsSDKBasePath$\\bin\\x64\\rc.exe' }\n\n");
-			
-			OutputString.Append(CompilerString);
+			OutputString.AppendFormat("#include \"{0}\"\n\n", settingsFilePath);
 
 			if (ActiveProject.GetItems("PreBuildEvent").Any())
 			{
