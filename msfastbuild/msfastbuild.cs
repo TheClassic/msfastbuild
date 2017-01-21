@@ -62,7 +62,6 @@ namespace msfastbuild
 	{
 		static public string PlatformToolsetVersion = "140";
 		static public string VCBasePath = "";
-		static public string BFFOutputFilePath = "fbuild.bff";
 		static public Options CommandLineOptions = new Options();
 		static public string WindowsSDKTarget = "10.0.10240.0";
 		static public Assembly CPPTasksAssembly;
@@ -84,7 +83,6 @@ namespace msfastbuild
 		{
 			public MSFBProject(string vcprojxPath)
 			{
-				// TODO is it ok to to throw an exception from a constructor?
 				try
 				{
 					ProjectCollection projColl = new ProjectCollection();
@@ -196,7 +194,7 @@ namespace msfastbuild
 			return dependencies;
 		}
 
-		static public bool HasFileChanged(string InputFile, string Platform, string Config, out string MD5hash)
+		static public bool HasFileChanged(string bffFile, string InputFile, string Platform, string Config, out string MD5hash)
 		{
 			using (var md5 = System.Security.Cryptography.MD5.Create())
 			{
@@ -206,10 +204,10 @@ namespace msfastbuild
 				}
 			}
 			
-			if (!File.Exists(BFFOutputFilePath))
+			if (!File.Exists(bffFile))
 				return true;
 			
-			string FirstLine = File.ReadAllLines(BFFOutputFilePath).First(); //bit wasteful to read the whole file...
+			string FirstLine = File.ReadAllLines(bffFile).First(); //bit wasteful to read the whole file...
 			if (FirstLine == MD5hash) 
 				return false;
 			else
@@ -233,7 +231,7 @@ namespace msfastbuild
 			{
 				System.Diagnostics.Process FBProcess = new System.Diagnostics.Process();
 				FBProcess.StartInfo.FileName = projectDir + "fb.bat";
-				FBProcess.StartInfo.Arguments = "-config \"" + BFFOutputFilePath + "\" " + CommandLineOptions.FBArgs;
+				FBProcess.StartInfo.Arguments = "-config \"" + "fbuild.bff" + "\" " + CommandLineOptions.FBArgs; //TODO need to correctly specify the file for it to build
 				FBProcess.StartInfo.RedirectStandardOutput = true;
 				FBProcess.StartInfo.UseShellExecute = false;
 				FBProcess.StartInfo.WorkingDirectory = projectDir;
@@ -335,7 +333,7 @@ namespace msfastbuild
 			}
 				
 
-			BFFOutputFilePath = GenerateBFF_FilePath(ProjectPath, CommandLineOptions);
+			string BFFOutputFilePath = GenerateBFF_FilePath(ProjectPath, CommandLineOptions);
 
 			List<string> dependencies = EvaluateProjectReferences(CurrentProject.Proj);
 
@@ -359,7 +357,7 @@ namespace msfastbuild
 			CPPTasksAssembly = Assembly.LoadFrom(CurrentProject.Proj.GetPropertyValue("VCTargetsPath14") + "Microsoft.Build.CPPTasks.Common.dll"); //Dodgy? VCTargetsPath may not be there...
 
 			string MD5hash = "wafflepalooza";
-			bool FileChanged = HasFileChanged(ProjectPath, Platform, Config, out MD5hash);
+			bool FileChanged = HasFileChanged(BFFOutputFilePath, ProjectPath, Platform, Config, out MD5hash);
 
 
 			string bffName = Path.GetFileNameWithoutExtension(ActiveProject.FullPath) + '_' + Platform + '_' + Config; /// we'll use this as the filename as well as objects within the bff
