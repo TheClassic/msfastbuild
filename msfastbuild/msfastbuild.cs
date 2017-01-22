@@ -705,7 +705,9 @@ namespace msfastbuild
 				OutputString.Append("}\n\n");
 			}
 
+			string postbuildName = "postbuild" + bffName;
 			string PostBuildBatchFile = "";
+
 			if (ActiveProject.GetItems("PostBuildEvent").Any())
 			{
 				ProjectItem BuildEvent = ActiveProject.GetItems("PostBuildEvent").First();
@@ -719,7 +721,7 @@ namespace msfastbuild
 							   + (PlatformToolsetVersion == "140" ? WindowsSDKTarget : "") + "\n";
 						PostBuildBatchFile = Path.Combine(ActiveProject.DirectoryPath, Path.GetFileNameWithoutExtension(ActiveProject.FullPath) + "_postbuild.bat");
 						File.WriteAllText(PostBuildBatchFile, BatchText + MetaData.EvaluatedValue);
-						OutputString.Append("Exec('postbuild') \n{\n");
+						OutputString.AppendFormat("Exec('{0}') \n{{\n", postbuildName);
 						OutputString.AppendFormat("\t.ExecExecutable = '{0}' \n", PostBuildBatchFile);
 						OutputString.AppendFormat("\t.ExecInput = '{0}' \n", PostBuildBatchFile);
 						OutputString.AppendFormat("\t.ExecOutput = '{0}' \n", PostBuildBatchFile + ".txt");
@@ -730,7 +732,7 @@ namespace msfastbuild
 				}
 			}
 
-			OutputString.AppendFormat("Alias ('all')\n{{\n\t.Targets = {{ '{0}' }}\n}} ", string.IsNullOrEmpty(PostBuildBatchFile) ? bffName : "postbuild");
+			OutputString.AppendFormat("Alias ('All_{0}')\n{{\n\t.Targets = {{ '{1}' }}\n}} ", bffName, string.IsNullOrEmpty(PostBuildBatchFile) ? bffName : postbuildName);
 
 			if(FileChanged || CommandLineOptions.AlwaysRegenerate)
 			{
