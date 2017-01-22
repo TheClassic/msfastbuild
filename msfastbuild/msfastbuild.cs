@@ -288,6 +288,8 @@ namespace msfastbuild
 			}
 
 			File.WriteAllText(masterBffPath, masterBffContent.ToString());
+
+			ExecuteBffFile(masterBffPath, CommandLineOptions.Platform);
 		}
 
 		static public List<string> EvaluateProjectReferences(Project project)
@@ -324,9 +326,9 @@ namespace msfastbuild
 				return true;
 		}
 
-		static public bool ExecuteBffFile(string ProjectPath, string Platform)
+		static public bool ExecuteBffFile(string masterBffFile, string Platform)
 		{
-			string projectDir = Path.GetDirectoryName(ProjectPath) + "\\";
+			string projectDir = Path.GetDirectoryName(masterBffFile) + "\\";
 
 			string BatchFileText = "@echo off\n"
 				+ "%comspec% /c \"\"" + VCBasePath
@@ -335,13 +337,13 @@ namespace msfastbuild
 				+ " && \"" + CommandLineOptions.FBPath  +"\" %*\"";
 			File.WriteAllText(projectDir + "fb.bat", BatchFileText);
 
-			Console.WriteLine("Building " + Path.GetFileNameWithoutExtension(ProjectPath));
+			Console.WriteLine("Building " + Path.GetFileNameWithoutExtension(masterBffFile));
 
 			try
 			{
 				System.Diagnostics.Process FBProcess = new System.Diagnostics.Process();
 				FBProcess.StartInfo.FileName = projectDir + "fb.bat";
-				FBProcess.StartInfo.Arguments = "-config \"" + "fbuild.bff" + "\" " + CommandLineOptions.FBArgs; //TODO need to correctly specify the file for it to build
+				FBProcess.StartInfo.Arguments = "-config \"" + masterBffFile + "\" " + CommandLineOptions.FBArgs; //TODO need to correctly specify the file for it to build
 				FBProcess.StartInfo.RedirectStandardOutput = true;
 				FBProcess.StartInfo.UseShellExecute = false;
 				FBProcess.StartInfo.WorkingDirectory = projectDir;
