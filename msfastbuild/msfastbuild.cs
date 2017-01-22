@@ -66,7 +66,6 @@ namespace msfastbuild
 		static public string WindowsSDKTarget = "10.0.10240.0";
 		static public Assembly CPPTasksAssembly;
 		static public string PreBuildBatchFile = "";
-		static public string PostBuildBatchFile = "";
 		static public string SolutionDir = "";
 		static public bool HasCompileActions = true;
 		static public string settingsFilePath = "";
@@ -706,6 +705,7 @@ namespace msfastbuild
 				OutputString.Append("}\n\n");
 			}
 
+			string PostBuildBatchFile = "";
 			if (ActiveProject.GetItems("PostBuildEvent").Any())
 			{
 				ProjectItem BuildEvent = ActiveProject.GetItems("PostBuildEvent").First();
