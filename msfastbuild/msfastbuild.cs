@@ -69,9 +69,6 @@ namespace msfastbuild
 		static public string PostBuildBatchFile = "";
 		static public string SolutionDir = "";
 		static public bool HasCompileActions = true;
-		static public string msvc32 = "msvc32";
-		static public string msvc64 = "msvc64";
-		static public string rc = "rc";
 		static public string settingsFilePath = "";
 
 		public enum BuildType
@@ -227,10 +224,12 @@ namespace msfastbuild
 				return;
 			}
 
+			string masterBffPath = "fbuild.bff";
 			List <string> ProjectsToBuild = new List<string>();
 			if (!string.IsNullOrEmpty(CommandLineOptions.Solution) && File.Exists(CommandLineOptions.Solution))
 			{
 				InitializeSettingsFilePath(CommandLineOptions.Solution);
+				masterBffPath = Path.Combine(Path.GetDirectoryName(CommandLineOptions.Solution), Path.GetFileNameWithoutExtension(CommandLineOptions.Solution) + ".bff");
 				try
 				{
 					if (string.IsNullOrEmpty(CommandLineOptions.Project))
@@ -262,6 +261,9 @@ namespace msfastbuild
 			}
 			else if (!string.IsNullOrEmpty(CommandLineOptions.Project))
 			{
+				InitializeSettingsFilePath(CommandLineOptions.Project);
+				masterBffPath = Path.Combine(Path.GetDirectoryName(CommandLineOptions.Project), Path.GetFileNameWithoutExtension(CommandLineOptions.Project) + ".bff");
+				
 				ProjectsToBuild.Add(Path.GetFullPath(CommandLineOptions.Project));
 			}
 
@@ -282,7 +284,10 @@ namespace msfastbuild
 					}
 					GenerateBffFromVcxproj(msfbProject, CommandLineOptions.Config, CommandLineOptions.Platform, GeneratedProjects);
 				}
+				masterBffContent.AppendFormat("#include \"{0}\"\n", GenerateBFF_FilePath(ProjectsToBuild[i], CommandLineOptions));
 			}
+
+			File.WriteAllText(masterBffPath, masterBffContent.ToString());
 		}
 
 		static public List<string> EvaluateProjectReferences(Project project)
