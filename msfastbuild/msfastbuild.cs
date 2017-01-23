@@ -437,14 +437,16 @@ namespace msfastbuild
 		static private void GenerateBffFromVcxproj(MSFBProject CurrentProject, string Config, string Platform, Dictionary<string, MSFBProject> generatedProjects)
 		{
 			string ProjectPath = CurrentProject.Proj.FullPath;
+
+			string BFFOutputFilePath = GenerateBFF_FilePath(ProjectPath, CommandLineOptions);
+
 			if (Path.GetExtension(ProjectPath) != ".vcxproj")
 			{
 				Console.WriteLine("Cannot handle project {0}.", ProjectPath);
+				File.WriteAllText(BFFOutputFilePath, "");
 				return;
 			}
-				
 
-			string BFFOutputFilePath = GenerateBFF_FilePath(ProjectPath, CommandLineOptions);
 
 			List<string> dependencies = EvaluateProjectReferences(CurrentProject.Proj);
 
