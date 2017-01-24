@@ -109,6 +109,7 @@ namespace msfastbuild
 			public Project Proj;
 			public List<MSFBProject> Dependencies = new List<MSFBProject>();
 			public string AdditionalLinkInputs = "";
+			public string TargetName;
 		}
 
 		static public string GenerateBFF_FilePath(string projectPath, Options CommandLineOptions)
@@ -266,7 +267,7 @@ namespace msfastbuild
 				ProjectsToBuild.Add(Path.GetFullPath(CommandLineOptions.Project));
 			}
 
-			StringBuilder masterBffContent = new StringBuilder(); //essentially a bff for the solution, including each of the projects
+			StringBuilder masterBffContent = new StringBuilder();
 
 			Dictionary<string, MSFBProject> GeneratedProjects = new Dictionary<string, MSFBProject>();
 
@@ -286,6 +287,19 @@ namespace msfastbuild
 				masterBffContent.AppendFormat("#include \"{0}\"\n", GenerateBFF_FilePath(ProjectsToBuild[i], CommandLineOptions));
 			}
 
+			masterBffContent.Append("\nAlias ('All')\n");
+			masterBffContent.Append("{\n");
+			masterBffContent.Append(".Targets = { ");
+
+			foreach (MSFBProject msfbProject in GeneratedProjects.Values)
+			{
+				masterBffContent.AppendFormat("'{0}'\n", msfbProject.TargetName);
+			}
+
+			masterBffContent.Append("}\n");
+			masterBffContent.Append("}\n");
+
+			//essentially a bff for the solution, including each of the projects
 			File.WriteAllText(masterBffPath, masterBffContent.ToString());
 
 			ExecuteBffFile(masterBffPath, CommandLineOptions.Platform);
@@ -734,7 +748,8 @@ namespace msfastbuild
 				}
 			}
 
-			OutputString.AppendFormat("Alias ('All_{0}')\n{{\n\t.Targets = {{ '{1}' }}\n}} ", bffName, string.IsNullOrEmpty(PostBuildBatchFile) ? bffName : postbuildName);
+			CurrentProject.TargetName = string.IsNullOrEmpty(PostBuildBatchFile) ? bffName : postbuildName;
+			OutputString.AppendFormat("Alias ('All_{0}')\n{{\n\t.Targets = {{ '{1}' }}\n}} ", bffName, CurrentProject.TargetName);
 
 			if(FileChanged || CommandLineOptions.AlwaysRegenerate)
 			{
